@@ -20,6 +20,7 @@ import org.opencv.features2d.FeatureDetector
 import org.opencv.features2d.Features2d
 import org.opencv.imgproc.Imgproc
 import java.io.IOException
+import java.util.*
 
 class MainActivity : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListener2 {
 
@@ -28,6 +29,7 @@ class MainActivity : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListe
     private var mOpenCvCameraView: CameraBridgeViewBase? = null
     private var detector: FeatureDetector? = null
     private var keyPoints: MatOfKeyPoint? = null
+    private var THRESHOLD = 300
 
     //  loader call back
     private val mLoaderCallback = object : BaseLoaderCallback(this) {
@@ -106,11 +108,46 @@ class MainActivity : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListe
         keyPoints = MatOfKeyPoint()
         detector?.detect(aInputFrame, keyPoints, Mat())
 
-        //  drawing key point
+        //  drawing key point - all keyPoints are drawn
+//        val outputImage = Mat()
+//        val flags = Features2d.DRAW_RICH_KEYPOINTS
+//        println("----threshold : keyPoints?.size() : " + keyPoints?.size())
+//        Features2d.drawKeypoints(aInputFrame, keyPoints, outputImage, RED_COLOR, flags);
+//        Imgproc.resize(outputImage, outputImage, aInputFrame.size())
+//        return outputImage
+
+
+        //  drawing key point with threshold
         val outputImage = Mat()
-        val flags = Features2d.DRAW_RICH_KEYPOINTS
-        Features2d.drawKeypoints(aInputFrame, keyPoints, outputImage, RED_COLOR, flags);
-        Imgproc.resize(outputImage, outputImage, aInputFrame.size())
+        val listOfKeyPoints = keyPoints?.toList()
+        println("size : keyPoints?.size() : " + keyPoints?.size())
+        println("size : listOfKeyPoints?.size : " + listOfKeyPoints?.size)
+        listOfKeyPoints?.sortWith(Comparator { kp1, kp2 ->
+            // Sort them in descending order, so the best response KPs will come first
+            (kp2.response - kp1.response).toInt()
+        })
+
+        listOfKeyPoints?.size?.let {
+            if (it >= THRESHOLD) {
+                //  picking first 300 points
+                val listOfBestKeyPoints = listOfKeyPoints.subList(0, THRESHOLD)
+                println("size : listOfBestKeyPoints?.size : " + listOfBestKeyPoints.size)
+                //  converting list to key point
+                val finalKeyPoints = MatOfKeyPoint()
+                finalKeyPoints.fromList(listOfBestKeyPoints)
+                //  draw keypoints in outputImage
+                Features2d.drawKeypoints(aInputFrame, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+                //  resize it
+                Imgproc.resize(outputImage, outputImage, aInputFrame.size())
+            } else {
+                val finalKeyPoints = MatOfKeyPoint()
+                finalKeyPoints.fromList(listOfKeyPoints)
+                //  draw keypoints in outputImage
+                Features2d.drawKeypoints(aInputFrame, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+                //  resize it
+                Imgproc.resize(outputImage, outputImage, aInputFrame.size())
+            }
+        }
         return outputImage
     }
 }
