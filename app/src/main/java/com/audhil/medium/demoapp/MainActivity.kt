@@ -1,11 +1,7 @@
 package com.audhil.medium.demoapp
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.support.v7.app.AppCompatActivity
 import android.os.Bundle
-import android.support.v4.app.ActivityCompat
-import android.support.v4.content.ContextCompat
 import android.view.SurfaceView
 import android.view.WindowManager
 import com.audhil.medium.demoapp.util.showVLog
@@ -62,10 +58,6 @@ class MainActivity : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListe
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.main_activity)
-
-        //  checking camera permission
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 0)
 
         mOpenCvCameraView = findViewById<CameraBridgeViewBase>(R.id.java_camera_view)
         mOpenCvCameraView?.visibility = SurfaceView.VISIBLE
