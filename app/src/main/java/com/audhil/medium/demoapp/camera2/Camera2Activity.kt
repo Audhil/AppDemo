@@ -2,6 +2,7 @@ package com.audhil.medium.demoapp.camera2
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
@@ -23,9 +24,14 @@ import com.audhil.medium.demoapp.util.showVLog
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.LoaderCallbackInterface
 import org.opencv.android.OpenCVLoader
+import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfKeyPoint
+import org.opencv.core.Scalar
 import org.opencv.features2d.FeatureDetector
+import org.opencv.features2d.Features2d
+import org.opencv.imgproc.Imgproc
 import java.io.IOException
 import java.nio.ByteBuffer
 
@@ -61,7 +67,8 @@ class Camera2Activity : AppCompatActivity() {
     private var cameraCaptureSession: CameraCaptureSession? = null
 
     //  feature detector
-    private var detector: FeatureDetector? = null
+    var detector: FeatureDetector? = null
+    private var THRESHOLD = 300
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,7 +119,7 @@ class Camera2Activity : AppCompatActivity() {
         //  Image Available Listener
         onImageAvailableListener = ImageReader.OnImageAvailableListener {
             val image = it.acquireLatestImage() ?: return@OnImageAvailableListener
-            backgroundHandler?.post(ImageManipulation(image))
+            backgroundHandler?.post(ImageManipulation(image, detector))
         }
     }
 
@@ -260,15 +267,84 @@ class Camera2Activity : AppCompatActivity() {
             }
 
     //  ImageManipulation class
-    class ImageManipulation(private val acquireLatestImage: Image) : Runnable {
+    inner class ImageManipulation(private val acquireLatestImage: Image, val detector: FeatureDetector?) : Runnable {
+
+        private lateinit var keyPoints: MatOfKeyPoint
+        private var RED_COLOR = Scalar(255.0, 0.0, 0.0)
 
         override fun run() {
             showVLog("acquireLatestImage.height : " + acquireLatestImage.height)
             showVLog("acquireLatestImage.width : " + acquireLatestImage.width)
             showVLog("acquireLatestImage.format : " + acquireLatestImage.format)
             try {
-                val mat = imageToMat(acquireLatestImage)
-                showVLog("acquireLatestImage : Resultant Mat is : mat : $mat")
+                //  making mat of preview image
+                val inputMat = imageToMat(acquireLatestImage)
+                showVLog("acquireLatestImage : Resultant Mat of an Image is : $inputMat")
+
+                //  making feature detection with OpenCV ORB detector
+                keyPoints = MatOfKeyPoint()
+                detector?.detect(inputMat, keyPoints, Mat())
+                val outputImage = Mat()
+
+                //  drawing all keypoints without THRESHOLD
+//                println("acquireLatestImage : threshold : keyPoints?.size() : " + keyPoints.size())
+//                Features2d.drawKeypoints(inputMat, keyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+//                Imgproc.resize(outputImage, outputImage, inputMat.size())
+//
+//                val bitmap = Bitmap.createBitmap(outputImage.cols(), outputImage.rows(), Bitmap.Config.ARGB_8888)
+//                Utils.matToBitmap(outputImage, bitmap)
+//
+//                //  plotting in Android View
+//                runOnUiThread {
+//                    bitmap?.let {
+//                        println("---Resultant bitmap : " + bitmap)
+//                        image_view.setImageBitmap(bitmap)
+//                    } ?: "Nothing can be done! Sorry!".showToast()
+//                }
+
+
+                //  drawing key point with THRESHOLD
+                val listOfKeyPoints = keyPoints.toList()
+                println("size : keyPoints?.size() : " + keyPoints.size())
+                println("size : listOfKeyPoints?.size : " + listOfKeyPoints?.size)
+                listOfKeyPoints?.sortWith(Comparator { kp1, kp2 ->
+                    // Sort them in descending order, so the best response KPs will come first
+                    (kp2.response - kp1.response).toInt()
+                })
+
+                listOfKeyPoints?.size?.let {
+                    if (it >= THRESHOLD) {
+                        //  picking first 300 points
+                        val listOfBestKeyPoints = listOfKeyPoints.subList(0, THRESHOLD)
+                        println("size : listOfBestKeyPoints?.size : " + listOfBestKeyPoints.size)
+                        //  converting list to key point
+                        val finalKeyPoints = MatOfKeyPoint()
+                        finalKeyPoints.fromList(listOfBestKeyPoints)
+                        //  draw keypoints in outputImage
+                        Features2d.drawKeypoints(inputMat, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+                        //  resize it
+                        Imgproc.resize(outputImage, outputImage, inputMat.size())
+                    } else {
+                        val finalKeyPoints = MatOfKeyPoint()
+                        finalKeyPoints.fromList(listOfKeyPoints)
+                        //  draw keypoints in outputImage
+                        Features2d.drawKeypoints(inputMat, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+                        //  resize it
+                        Imgproc.resize(outputImage, outputImage, inputMat.size())
+                    }
+                }
+
+                val bitmap = Bitmap.createBitmap(outputImage.cols(), outputImage.rows(), Bitmap.Config.ARGB_8888)
+                Utils.matToBitmap(outputImage, bitmap)
+
+                //  plotting in Android View
+                runOnUiThread {
+                    bitmap?.let {
+                        println("---Resultant bitmap : " + bitmap)
+                        image_view.setImageBitmap(bitmap)
+                    } ?: "Nothing can be done! Sorry!".showToast()
+                }
+
 
             } catch (e: Exception) {
                 "Something went wrong".showToast()
