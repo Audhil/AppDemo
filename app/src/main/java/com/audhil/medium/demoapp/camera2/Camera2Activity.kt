@@ -2,9 +2,8 @@ package com.audhil.medium.demoapp.camera2
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.ImageFormat
-import android.graphics.SurfaceTexture
+import android.content.res.Configuration
+import android.graphics.*
 import android.hardware.camera2.*
 import android.media.Image
 import android.media.ImageReader
@@ -34,6 +33,7 @@ import org.opencv.features2d.Features2d
 import org.opencv.imgproc.Imgproc
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlin.Comparator
 
 /*
  * Created by mohammed-2284 on 31/03/18.
@@ -42,11 +42,15 @@ import java.nio.ByteBuffer
 
 class Camera2Activity : AppCompatActivity() {
 
-    private var cameraManager: CameraManager? = null
+    private val cameraManager: CameraManager? by lazy {
+        getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    }
+
     private var cameraFacing: Int = 0
 
     //  state callback
     private var cameraDeviceStateCallback: CameraDevice.StateCallback? = null
+
     //  camera device
     private var cameraDevice: CameraDevice? = null
 
@@ -70,12 +74,14 @@ class Camera2Activity : AppCompatActivity() {
     var detector: FeatureDetector? = null
     private var THRESHOLD = 300
 
+    //  ImageManipulation class
+    private val rotateMatrix by lazy {
+        Matrix()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.camera2_activity)
-
-        //  camera manager
-        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
         //  back camera
         cameraFacing = CameraCharacteristics.LENS_FACING_BACK
@@ -92,7 +98,10 @@ class Camera2Activity : AppCompatActivity() {
             override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture?): Boolean = false
 
             override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture?, width: Int, height: Int) {
-                setUpCamera()
+                setUpCamera(width, height)
+
+                transformImageForCameraPreview(width, height)
+
                 openCamera()
             }
         }
@@ -116,10 +125,19 @@ class Camera2Activity : AppCompatActivity() {
             }
         }
 
+        //  applying 90 deg rotation
+        rotateMatrix.apply {
+            postRotate(90f)
+        }
+
         //  Image Available Listener
         onImageAvailableListener = ImageReader.OnImageAvailableListener {
-            val image = it.acquireLatestImage() ?: return@OnImageAvailableListener
-            backgroundHandler?.post(ImageManipulation(image, detector))
+            try {
+                val image = it.acquireLatestImage() ?: return@OnImageAvailableListener
+                backgroundHandler?.post(ImageManipulation(image, detector))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -159,9 +177,13 @@ class Camera2Activity : AppCompatActivity() {
 
         openBackgroundThread()
         if (texture_view.isAvailable) {
-            setUpCamera()
+            setUpCamera(texture_view.width, texture_view.height)
+
+            transformImageForCameraPreview(texture_view.width, texture_view.height)
+
             openCamera()
-        } else texture_view.surfaceTextureListener = surfaceTextureListener
+        } else
+            texture_view.surfaceTextureListener = surfaceTextureListener
     }
 
     override fun onStop() {
@@ -192,14 +214,13 @@ class Camera2Activity : AppCompatActivity() {
     }
 
     //  setup camera
-    private fun setUpCamera() =
+    private fun setUpCamera(width: Int, height: Int) =
             try {
                 //  looping through available cameras list
                 cameraManager?.cameraIdList?.forEach {
                     val cameraCharacteristics = cameraManager?.getCameraCharacteristics(it)
                     if (cameraCharacteristics?.get(CameraCharacteristics.LENS_FACING) == cameraFacing) {
                         val streamConfigMap = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-                        //  The zeroth element is the resolution we want — the highest available one
                         previewSize = streamConfigMap.getOutputSizes(SurfaceTexture::class.java)[0]
                         mImageReader = ImageReader.newInstance(previewSize!!.width / 16, previewSize!!.height / 16, ImageFormat.YUV_420_888, 2)
                         mImageReader?.setOnImageAvailableListener(onImageAvailableListener, backgroundHandler)
@@ -252,7 +273,10 @@ class Camera2Activity : AppCompatActivity() {
 
                                 try {
                                     captureRequest = captureRequestBuilder?.build()
+
                                     this@Camera2Activity.cameraCaptureSession = cameraCaptureSession
+
+                                    //  this is Video
                                     this@Camera2Activity.cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
                                 } catch (e: CameraAccessException) {
                                     e.printStackTrace()
@@ -266,8 +290,8 @@ class Camera2Activity : AppCompatActivity() {
                 e.printStackTrace()
             }
 
-    //  ImageManipulation class
-    inner class ImageManipulation(private val acquireLatestImage: Image, val detector: FeatureDetector?) : Runnable {
+    //  image manipulation class
+    inner class ImageManipulation(private val acquireLatestImage: Image, private val detector: FeatureDetector?) : Runnable {
 
         private lateinit var keyPoints: MatOfKeyPoint
         private var RED_COLOR = Scalar(255.0, 0.0, 0.0)
@@ -321,27 +345,35 @@ class Camera2Activity : AppCompatActivity() {
                         val finalKeyPoints = MatOfKeyPoint()
                         finalKeyPoints.fromList(listOfBestKeyPoints)
                         //  draw keypoints in outputImage
-                        Features2d.drawKeypoints(inputMat, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+                        Features2d.drawKeypoints(inputMat, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS)
                         //  resize it
                         Imgproc.resize(outputImage, outputImage, inputMat.size())
                     } else {
                         val finalKeyPoints = MatOfKeyPoint()
                         finalKeyPoints.fromList(listOfKeyPoints)
                         //  draw keypoints in outputImage
-                        Features2d.drawKeypoints(inputMat, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS);
+                        Features2d.drawKeypoints(inputMat, finalKeyPoints, outputImage, RED_COLOR, Features2d.DRAW_RICH_KEYPOINTS)
                         //  resize it
                         Imgproc.resize(outputImage, outputImage, inputMat.size())
                     }
                 }
 
+                //  making a bitmap
                 val bitmap = Bitmap.createBitmap(outputImage.cols(), outputImage.rows(), Bitmap.Config.ARGB_8888)
                 Utils.matToBitmap(outputImage, bitmap)
 
                 //  plotting in Android View
                 runOnUiThread {
                     bitmap?.let {
-                        println("---Resultant bitmap : " + bitmap)
-                        image_view.setImageBitmap(bitmap)
+                        println("Resultant bitmap : " + bitmap)
+                        
+                        if (resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE)
+                            image_view.setImageBitmap(Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, rotateMatrix, true))
+
+                        //  no rotation for "landscape"
+                        else
+                            image_view.setImageBitmap(bitmap)
+
                     } ?: "Nothing can be done! Sorry!".showToast()
                 }
 
@@ -353,6 +385,7 @@ class Camera2Activity : AppCompatActivity() {
                 acquireLatestImage.close()
             }
         }
+
 
         //  image to mat converter
         private fun imageToMat(image: Image): Mat {
@@ -371,8 +404,17 @@ class Camera2Activity : AppCompatActivity() {
                 buffer = planes[i].buffer
                 rowStride = planes[i].rowStride
                 pixelStride = planes[i].pixelStride
-                val w = if (i == 0) width else width / 2
-                val h = if (i == 0) height else height / 2
+
+                val w = if (i == 0)
+                    width
+                else
+                    width / 2
+
+                val h = if (i == 0)
+                    height
+                else
+                    height / 2
+
                 for (row in 0 until h) {
                     val bytesPerPixel = ImageFormat.getBitsPerPixel(ImageFormat.YUV_420_888) / 8
                     if (pixelStride == bytesPerPixel) {
@@ -405,10 +447,34 @@ class Camera2Activity : AppCompatActivity() {
             }
 
             // Finally, create the Mat.
-            val mat = Mat(height + height / 2, width, CvType.CV_8UC1)
+            val mat = Mat(height, width, CvType.CV_8UC1)
             mat.put(0, 0, data)
-
             return mat
         }
+    }
+
+    //  transform image
+    fun transformImageForCameraPreview(width: Int, height: Int) {
+        if (previewSize == null || texture_view == null)
+            return
+
+        val matrix = Matrix()
+        val rotation = windowManager?.defaultDisplay?.rotation
+        val textureRectF = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        val previewRectF = RectF(0f, 0f, previewSize?.height?.toFloat()!!, previewSize?.width?.toFloat()!!)
+        val centerX = textureRectF.centerX()
+        val centerY = textureRectF.centerY()
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            previewRectF.offset(centerX - previewRectF.centerX(),
+                    centerY - previewRectF.centerY())
+
+            matrix.setRectToRect(textureRectF, previewRectF, Matrix.ScaleToFit.FILL)
+
+            val scale = Math.max(width / previewSize?.width?.toFloat()!!, height / previewSize?.height?.toFloat()!!)
+
+            matrix.postScale(scale, scale, centerX, centerY)
+            matrix.postRotate((90 * (rotation - 2)).toFloat(), centerX, centerY)
+        }
+        texture_view.setTransform(matrix)
     }
 }
